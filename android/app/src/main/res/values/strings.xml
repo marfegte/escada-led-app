@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Escada LED</string>
+    <string name="title_activity_main">Escada LED</string>
+    <string name="package_name">com.escadaled.controller</string>
+    <string name="custom_url_scheme">com.escadaled.controller</string>
+</resources>
