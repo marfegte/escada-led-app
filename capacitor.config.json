@@ -1,0 +1,11 @@
+{
+  "appId": "com.escadaled.controller",
+  "appName": "Escada LED",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

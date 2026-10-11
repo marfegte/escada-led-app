@@ -1,0 +1,77 @@
+name: Gerar APK Android
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Compilar APK Android (Capacitor)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar Código (Checkout)
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar Dependências NPM
+        run: npm install
+
+      - name: Compilar Aplicação Web (Vite)
+        run: npm run build
+
+      - name: Inicializar e Sincronizar Capacitor Android
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Injetar Permissões Bluetooth BLE no AndroidManifest
+        run: node scripts/inject-android-permissions.cjs
+
+      - name: Configurar Permissão do Gradle Wrapper
+        run: chmod +x android/gradlew
+
+      - name: Compilar APK Android (Debug)
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Renomear e Mover APK
+        run: |
+          mkdir -p output
+          cp android/app/build/outputs/apk/debug/app-debug.apk output/EscadaLED-v2.4-debug.apk
+
+      - name: Fazer Upload do Artefato APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EscadaLED-APK
+          path: output/EscadaLED-v2.4-debug.apk
+          retention-days: 30
+
+      - name: Criar Release no GitHub (quando tag v* for criada)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/EscadaLED-v2.4-debug.apk
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

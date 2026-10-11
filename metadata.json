@@ -1,0 +1,10 @@
+{
+  "name": "Escada LED — Configuração",
+  "description": "Painel de controle e configuração para escada inteligente com LED via Web Serial USB e BLE-Nano Bluetooth.",
+  "requestFramePermissions": [
+    "bluetooth",
+    "serial",
+    "usb"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
