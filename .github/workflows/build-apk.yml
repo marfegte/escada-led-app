@@ -28,10 +28,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Instalar Dependências NPM
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Compilar Aplicação Web (Vite)
         run: npm run build
