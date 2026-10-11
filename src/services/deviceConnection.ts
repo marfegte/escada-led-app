@@ -1,4 +1,9 @@
 import { StaircaseConfig, SystemStatus, LogEntry } from '../types';
+import { BleClient } from '@capacitor-community/bluetooth-le';
+import { Capacitor } from '@capacitor/core';
+
+const BLE_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+const BLE_CHAR_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
 // Web Bluetooth and Web Serial type declarations if not in global dom types
 interface BluetoothRemoteGATTServer {
@@ -42,6 +47,7 @@ export class DeviceConnectionService {
   // Bluetooth handles
   private bleDevice: BluetoothDevice | null = null;
   private bleChar: BluetoothRemoteGATTCharacteristic | null = null;
+  private nativeBleDeviceId: string | null = null;
 
   // Simulator handles
   private simInterval: any = null;
@@ -197,8 +203,72 @@ export class DeviceConnectionService {
 
   // ------------------------- BLE Nano -------------------------
   public async connectBLE(): Promise<boolean> {
+    // 1. Android / Native App Platform (via Capacitor)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        this.connecting = true;
+        this.log('Iniciando Bluetooth nativo do Android...', 'bt');
+        this.onConnectionChange?.(false, 'Iniciando Bluetooth nativo...', 'wait');
+
+        await BleClient.initialize();
+
+        this.log('Procurando módulo BLE-Nano...', 'bt');
+        this.onConnectionChange?.(false, 'Buscando dispositivo Bluetooth...', 'wait');
+
+        // Request device via native Android BLE dialog
+        const device = await BleClient.requestDevice({
+          services: [BLE_SERVICE_UUID, 'ffe0'],
+          optionalServices: [BLE_SERVICE_UUID, 'ffe0'],
+        });
+
+        if (!device || !device.deviceId) {
+          this.connecting = false;
+          this.onConnectionChange?.(false, 'Desconectado', 'err');
+          return false;
+        }
+
+        this.nativeBleDeviceId = device.deviceId;
+        this.log(`Conectando ao dispositivo ${device.name || device.deviceId}...`, 'info');
+
+        await BleClient.connect(device.deviceId, () => {
+          this.nativeBleDeviceId = null;
+          this.connected = false;
+          this.onConnectionChange?.(false, 'BLE Desconectado', 'err');
+          this.log('BLE Desconectado (nativo)', 'err');
+        });
+
+        await BleClient.startNotifications(
+          device.deviceId,
+          BLE_SERVICE_UUID,
+          BLE_CHAR_UUID,
+          (value: DataView) => {
+            const decoder = new TextDecoder();
+            const text = decoder.decode(value);
+            this.processIncoming(text);
+          }
+        );
+
+        this.connected = true;
+        this.connecting = false;
+        const devName = device.name || 'BLE-Nano';
+        this.onConnectionChange?.(true, `BLE-Nano: ${devName}`, 'ok');
+        this.log(`BLE-Nano conectado nativamente no Android (${devName}) ✓`, 'ok');
+
+        this.autoLoadBleConfig();
+        return true;
+      } catch (e: any) {
+        this.connecting = false;
+        this.connected = false;
+        this.nativeBleDeviceId = null;
+        this.log('Falha ao conectar BLE nativo: ' + (e.message || e), 'err');
+        this.onConnectionChange?.(false, 'Desconectado', 'err');
+        return false;
+      }
+    }
+
+    // 2. Web Browser Platform (Web Bluetooth API)
     if (!('bluetooth' in navigator)) {
-      this.log('Web Bluetooth não é suportado por este navegador. Use Chrome/Edge ≥ 89.', 'err');
+      this.log('Web Bluetooth não é suportado por este navegador. Use o Google Chrome ou instale o APK nativo.', 'err');
       this.onConnectionChange?.(false, 'Navegador sem suporte a Web Bluetooth', 'err');
       return false;
     }
@@ -209,8 +279,8 @@ export class DeviceConnectionService {
       this.onConnectionChange?.(false, 'Buscando dispositivo Bluetooth...', 'wait');
 
       this.bleDevice = await (navigator as any).bluetooth.requestDevice({
-        filters: [{ services: ['0000ffe0-0000-1000-8000-00805f9b34fb'] }],
-        optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb'],
+        filters: [{ services: [BLE_SERVICE_UUID] }],
+        optionalServices: [BLE_SERVICE_UUID],
       });
 
       if (!this.bleDevice) return false;
@@ -275,8 +345,8 @@ export class DeviceConnectionService {
       try {
         const server = await device.gatt!.connect();
         await new Promise((r) => setTimeout(r, 500));
-        const svc = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
-        const ch = await svc.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+        const svc = await server.getPrimaryService(BLE_SERVICE_UUID);
+        const ch = await svc.getCharacteristic(BLE_CHAR_UUID);
         await ch.startNotifications();
         return ch;
       } catch (e: any) {
@@ -294,7 +364,7 @@ export class DeviceConnectionService {
   private async autoLoadBleConfig() {
     for (let t = 1; t <= 4; t++) {
       await new Promise((r) => setTimeout(r, t === 1 ? 1200 : 2000));
-      if (!this.bleChar && !this.usbWriter) return;
+      if (!this.bleChar && !this.usbWriter && !this.nativeBleDeviceId) return;
       this.log(t === 1 ? 'Solicitando configuração do Arduino...' : `Tentativa ${t}/4 ler config...`, 'info');
       await this.sendCmd('GET_CFG');
       await new Promise((r) => setTimeout(r, 2000));
@@ -302,6 +372,13 @@ export class DeviceConnectionService {
   }
 
   public async disconnectBLE() {
+    if (this.nativeBleDeviceId) {
+      const id = this.nativeBleDeviceId;
+      this.nativeBleDeviceId = null;
+      try {
+        await BleClient.disconnect(id);
+      } catch (e) {}
+    }
     const dev = this.bleDevice;
     this.bleDevice = null;
     this.bleChar = null;
@@ -372,8 +449,18 @@ export class DeviceConnectionService {
         await this.usbWriter.write(payload);
         return true;
       }
+      if (this.nativeBleDeviceId) {
+        // Native Android Bluetooth LE via BleClient
+        for (let i = 0; i < payload.length; i += 20) {
+          const chunk = payload.slice(i, i + 20);
+          const dataView = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+          await BleClient.write(this.nativeBleDeviceId, BLE_SERVICE_UUID, BLE_CHAR_UUID, dataView);
+          await new Promise((r) => setTimeout(r, 45));
+        }
+        return true;
+      }
       if (this.bleChar) {
-        // Send in 20-byte MTU chunks with 45ms pause
+        // Web Bluetooth
         for (let i = 0; i < payload.length; i += 20) {
           const chunk = payload.slice(i, i + 20);
           await this.bleChar.writeValue(chunk);
