@@ -34,3 +34,9 @@ export interface LogEntry {
 }
 
 export type AnimationPhase = 'idle' | 'on' | 'pause' | 'off';
+
+export interface DiscoveredBleDevice {
+  deviceId: string;
+  name: string;
+  rssi?: number;
+}

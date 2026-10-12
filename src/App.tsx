@@ -12,6 +12,7 @@ import { SerialLogConsole } from './components/SerialLogConsole';
 import { FirmwareGuideModal } from './components/FirmwareGuideModal';
 import { IframePermissionNotice } from './components/IframePermissionNotice';
 import { ApkGuideModal } from './components/ApkGuideModal';
+import { BluetoothScannerModal } from './components/BluetoothScannerModal';
 
 export default function App() {
   const [mode, setMode] = useState<ConnectionMode>('usb');
@@ -20,6 +21,7 @@ export default function App() {
   const [connectionLabel, setConnectionLabel] = useState('Desconectado');
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isApkGuideOpen, setIsApkGuideOpen] = useState(false);
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [blockedFeature, setBlockedFeature] = useState<'bluetooth' | 'serial' | null>(null);
 
   // Configuration state
@@ -164,6 +166,10 @@ export default function App() {
 
     deviceService.onPermissionBlocked = (feat) => {
       setBlockedFeature(feat);
+    };
+
+    deviceService.onRequestScannerModal = () => {
+      setIsScannerModalOpen(true);
     };
   }, [addLog]);
 
@@ -489,6 +495,13 @@ export default function App() {
       <ApkGuideModal
         isOpen={isApkGuideOpen}
         onClose={() => setIsApkGuideOpen(false)}
+      />
+
+      {/* In-App Bluetooth LE Device Scanner Modal (Android & Web) */}
+      <BluetoothScannerModal
+        isOpen={isScannerModalOpen}
+        onClose={() => setIsScannerModalOpen(false)}
+        onDeviceConnected={() => setIsScannerModalOpen(false)}
       />
     </div>
   );

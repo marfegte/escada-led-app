@@ -1,4 +1,4 @@
-import { StaircaseConfig, SystemStatus, LogEntry } from '../types';
+import { StaircaseConfig, SystemStatus, LogEntry, DiscoveredBleDevice } from '../types';
 import { BleClient } from '@capacitor-community/bluetooth-le';
 import { Capacitor } from '@capacitor/core';
 
@@ -83,6 +83,7 @@ export class DeviceConnectionService {
   public onLog?: (msg: string, type: LogEntry['type']) => void;
   public onConnectionChange?: (connected: boolean, label: string, state: 'ok' | 'err' | 'wait') => void;
   public onPermissionBlocked?: (feature: 'bluetooth' | 'serial') => void;
+  public onRequestScannerModal?: () => void;
 
   constructor() {}
 
@@ -202,68 +203,144 @@ export class DeviceConnectionService {
   }
 
   // ------------------------- BLE Nano -------------------------
-  public async connectBLE(): Promise<boolean> {
-    // 1. Android / Native App Platform (via Capacitor)
+  public async checkBlePrerequisites(): Promise<{ bluetoothOk: boolean; locationOk: boolean; error?: string }> {
+    if (!Capacitor.isNativePlatform()) {
+      return { bluetoothOk: true, locationOk: true };
+    }
+    try {
+      await BleClient.initialize();
+      const bluetoothOk = await BleClient.isEnabled().catch(() => true);
+      const locationOk = await BleClient.isLocationEnabled().catch(() => true);
+      return { bluetoothOk, locationOk };
+    } catch (e: any) {
+      return { bluetoothOk: false, locationOk: false, error: e.message || 'Falha ao inicializar Bluetooth' };
+    }
+  }
+
+  public async requestEnableBluetooth(): Promise<void> {
     if (Capacitor.isNativePlatform()) {
       try {
-        this.connecting = true;
-        this.log('Iniciando Bluetooth nativo do Android...', 'bt');
-        this.onConnectionChange?.(false, 'Iniciando Bluetooth nativo...', 'wait');
+        await BleClient.requestEnable();
+      } catch (e) {
+        await BleClient.openBluetoothSettings().catch(() => {});
+      }
+    }
+  }
 
+  public async openLocationSettings(): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await BleClient.openLocationSettings();
+      } catch (e) {}
+    }
+  }
+
+  public async startNativeBleScan(onDevice: (dev: DiscoveredBleDevice) => void): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    await BleClient.initialize();
+
+    // Check if Bluetooth is enabled
+    const enabled = await BleClient.isEnabled().catch(() => true);
+    if (!enabled) {
+      await BleClient.requestEnable().catch(() => {});
+    }
+
+    // Scan for ALL devices nearby without restrictive service filter
+    // so BLE-Nano, CC2540, HM-10, BT05 are 100% discovered!
+    await BleClient.requestLEScan({}, (result) => {
+      const devName = result.localName || result.device.name || 'Dispositivo BLE';
+      onDevice({
+        deviceId: result.device.deviceId,
+        name: devName,
+        rssi: result.rssi,
+      });
+    });
+  }
+
+  public async stopNativeBleScan(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      await BleClient.stopLEScan();
+    } catch (e) {}
+  }
+
+  public async connectToNativeBleDevice(deviceId: string, deviceName?: string): Promise<boolean> {
+    try {
+      this.connecting = true;
+      this.nativeBleDeviceId = deviceId;
+      this.onConnectionChange?.(false, `Conectando a ${deviceName || deviceId}...`, 'wait');
+      this.log(`Conectando ao dispositivo ${deviceName || deviceId}...`, 'info');
+
+      await BleClient.connect(deviceId, () => {
+        this.nativeBleDeviceId = null;
+        this.connected = false;
+        this.onConnectionChange?.(false, 'BLE Desconectado', 'err');
+        this.log('BLE Desconectado (nativo)', 'err');
+      });
+
+      await BleClient.startNotifications(
+        deviceId,
+        BLE_SERVICE_UUID,
+        BLE_CHAR_UUID,
+        (value: DataView) => {
+          const decoder = new TextDecoder();
+          const text = decoder.decode(value);
+          this.processIncoming(text);
+        }
+      );
+
+      this.connected = true;
+      this.connecting = false;
+      const devName = deviceName || 'BLE-Nano';
+      this.onConnectionChange?.(true, `BLE-Nano: ${devName}`, 'ok');
+      this.log(`BLE-Nano conectado nativamente (${devName}) ✓`, 'ok');
+
+      this.autoLoadBleConfig();
+      return true;
+    } catch (e: any) {
+      this.connecting = false;
+      this.connected = false;
+      this.nativeBleDeviceId = null;
+      this.log('Erro ao conectar ao BLE: ' + (e.message || e), 'err');
+      this.onConnectionChange?.(false, 'Desconectado', 'err');
+      return false;
+    }
+  }
+
+  public async connectBLESystemDialog(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
         await BleClient.initialize();
+        const enabled = await BleClient.isEnabled().catch(() => true);
+        if (!enabled) {
+          await BleClient.requestEnable().catch(() => {});
+        }
 
-        this.log('Procurando módulo BLE-Nano...', 'bt');
-        this.onConnectionChange?.(false, 'Buscando dispositivo Bluetooth...', 'wait');
-
-        // Request device via native Android BLE dialog
+        // Request device without restrictive services so all BLE devices appear!
         const device = await BleClient.requestDevice({
-          services: [BLE_SERVICE_UUID, 'ffe0'],
           optionalServices: [BLE_SERVICE_UUID, 'ffe0'],
         });
 
-        if (!device || !device.deviceId) {
-          this.connecting = false;
-          this.onConnectionChange?.(false, 'Desconectado', 'err');
-          return false;
+        if (device && device.deviceId) {
+          return this.connectToNativeBleDevice(device.deviceId, device.name);
         }
-
-        this.nativeBleDeviceId = device.deviceId;
-        this.log(`Conectando ao dispositivo ${device.name || device.deviceId}...`, 'info');
-
-        await BleClient.connect(device.deviceId, () => {
-          this.nativeBleDeviceId = null;
-          this.connected = false;
-          this.onConnectionChange?.(false, 'BLE Desconectado', 'err');
-          this.log('BLE Desconectado (nativo)', 'err');
-        });
-
-        await BleClient.startNotifications(
-          device.deviceId,
-          BLE_SERVICE_UUID,
-          BLE_CHAR_UUID,
-          (value: DataView) => {
-            const decoder = new TextDecoder();
-            const text = decoder.decode(value);
-            this.processIncoming(text);
-          }
-        );
-
-        this.connected = true;
-        this.connecting = false;
-        const devName = device.name || 'BLE-Nano';
-        this.onConnectionChange?.(true, `BLE-Nano: ${devName}`, 'ok');
-        this.log(`BLE-Nano conectado nativamente no Android (${devName}) ✓`, 'ok');
-
-        this.autoLoadBleConfig();
-        return true;
+        return false;
       } catch (e: any) {
-        this.connecting = false;
-        this.connected = false;
-        this.nativeBleDeviceId = null;
-        this.log('Falha ao conectar BLE nativo: ' + (e.message || e), 'err');
-        this.onConnectionChange?.(false, 'Desconectado', 'err');
+        this.log('Seletor do sistema cancelado ou falhou: ' + (e.message || e), 'err');
         return false;
       }
+    }
+    return false;
+  }
+
+  public async connectBLE(): Promise<boolean> {
+    // 1. Android / Native App Platform (via Capacitor)
+    if (Capacitor.isNativePlatform()) {
+      if (this.onRequestScannerModal) {
+        this.onRequestScannerModal();
+        return true;
+      }
+      return this.connectBLESystemDialog();
     }
 
     // 2. Web Browser Platform (Web Bluetooth API)
@@ -278,9 +355,10 @@ export class DeviceConnectionService {
       this.log('Procurando módulo BLE-Nano...', 'bt');
       this.onConnectionChange?.(false, 'Buscando dispositivo Bluetooth...', 'wait');
 
+      // Use acceptAllDevices: true to not filter out CC2540 / BLE-Nano!
       this.bleDevice = await (navigator as any).bluetooth.requestDevice({
-        filters: [{ services: [BLE_SERVICE_UUID] }],
-        optionalServices: [BLE_SERVICE_UUID],
+        acceptAllDevices: true,
+        optionalServices: [BLE_SERVICE_UUID, 'ffe0'],
       });
 
       if (!this.bleDevice) return false;

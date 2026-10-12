@@ -13,7 +13,7 @@ let content = fs.readFileSync(manifestPath, 'utf8');
 const permissions = [
   '    <uses-permission android:name="android.permission.BLUETOOTH" />',
   '    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />',
-  '    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />',
+  '    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />',
   '    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />',
   '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
   '    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
