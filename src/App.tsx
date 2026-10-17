@@ -15,7 +15,7 @@ import { ApkGuideModal } from './components/ApkGuideModal';
 import { BluetoothScannerModal } from './components/BluetoothScannerModal';
 
 export default function App() {
-  const [mode, setMode] = useState<ConnectionMode>('usb');
+  const [mode, setMode] = useState<ConnectionMode>('bt');
   const [connected, setConnected] = useState(false);
   const [connectionState, setConnectionState] = useState<'ok' | 'err' | 'wait'>('err');
   const [connectionLabel, setConnectionLabel] = useState('Desconectado');
@@ -63,7 +63,7 @@ export default function App() {
     {
       id: 'init-1',
       timestamp: new Date().toLocaleTimeString('pt-BR'),
-      message: 'Painel inicializado. Selecione o modo USB, BLE-Nano ou Simulador.',
+      message: 'Painel inicializado. Conexão Bluetooth BLE-Nano pronta para pareamento.',
       type: 'info',
     },
   ]);
@@ -171,6 +171,8 @@ export default function App() {
     deviceService.onRequestScannerModal = () => {
       setIsScannerModalOpen(true);
     };
+
+    deviceService.setMode('bt');
   }, [addLog]);
 
   // Client animation runner matching hardware timing

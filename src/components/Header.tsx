@@ -1,6 +1,7 @@
-import React from 'react';
-import { Usb, Bluetooth, Cpu, BookOpen, Layers, ExternalLink, Smartphone } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Usb, Bluetooth, Cpu, BookOpen, ExternalLink, Smartphone } from 'lucide-react';
 import { ConnectionMode } from '../types';
+import { Capacitor } from '@capacitor/core';
 
 interface HeaderProps {
   mode: ConnectionMode;
@@ -11,6 +12,33 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ mode, onModeChange, onOpenGuide, onOpenApkGuide }) => {
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      Capacitor.isNativePlatform() ||
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+      window.innerWidth < 768
+    );
+  });
+
+  const isNativeApp = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile =
+        Capacitor.isNativePlatform() ||
+        /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+        window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile && mode !== 'bt') {
+        onModeChange('bt');
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [mode, onModeChange]);
 
   return (
     <header className="space-y-4">
@@ -42,25 +70,29 @@ export const Header: React.FC<HeaderProps> = ({ mode, onModeChange, onOpenGuide,
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenApkGuide}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all active:scale-98"
-            title="Como compilar e baixar o APK nativo no GitHub Actions"
-          >
-            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Gerar APK (Actions)</span>
-          </button>
+          {!isNativeApp && (
+            <>
+              <button
+                onClick={onOpenApkGuide}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold transition-all active:scale-98"
+                title="Como compilar e baixar o APK nativo no GitHub Actions"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Gerar APK (Actions)</span>
+              </button>
 
-          <a
-            href={currentUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Abrir em aba separada para permissão total de Bluetooth/USB"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 text-xs font-medium transition-all active:scale-98"
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Nova Aba ↗</span>
-          </a>
+              <a
+                href={currentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Abrir em aba separada para permissão total de Bluetooth/USB"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border border-white/10 text-xs font-medium transition-all active:scale-98"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Nova Aba ↗</span>
+              </a>
+            </>
+          )}
 
           <button
             onClick={onOpenGuide}
@@ -72,63 +104,86 @@ export const Header: React.FC<HeaderProps> = ({ mode, onModeChange, onOpenGuide,
         </div>
       </div>
 
-      {/* Mode selection tabs */}
-      <div className="grid grid-cols-3 gap-2 p-1 bg-[#121418] border border-white/10 rounded-xl">
-        <button
-          onClick={() => onModeChange('usb')}
-          className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-            mode === 'usb'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-white/60 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Usb className="w-3.5 h-3.5" />
-          <span>USB / Serial</span>
-        </button>
+      {/* Mobile: Exclusively Bluetooth connection mode (USB & Simulator removed) */}
+      {isMobile ? (
+        <div className="p-3 bg-[#121418] border border-amber-500/25 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Bluetooth className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">Conexão Bluetooth BLE-Nano</span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                  {isNativeApp ? 'APP NATIVO' : 'SEM FIO'}
+                </span>
+              </div>
+              <p className="text-[11px] text-white/50">
+                Comunicação sem fio direta com o Arduino via BLE (Serviço FFE0 / Char FFE1)
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Desktop: Full tabs including USB and Simulator */
+        <>
+          <div className="grid grid-cols-3 gap-2 p-1 bg-[#121418] border border-white/10 rounded-xl">
+            <button
+              onClick={() => onModeChange('usb')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                mode === 'usb'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Usb className="w-3.5 h-3.5" />
+              <span>USB / Serial</span>
+            </button>
 
-        <button
-          onClick={() => onModeChange('bt')}
-          className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-            mode === 'bt'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-white/60 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Bluetooth className="w-3.5 h-3.5" />
-          <span>BLE-Nano</span>
-        </button>
+            <button
+              onClick={() => onModeChange('bt')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                mode === 'bt'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Bluetooth className="w-3.5 h-3.5" />
+              <span>BLE-Nano</span>
+            </button>
 
-        <button
-          onClick={() => onModeChange('sim')}
-          className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
-            mode === 'sim'
-              ? 'bg-amber-500 text-black shadow-md'
-              : 'text-white/60 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span>Simulador</span>
-        </button>
-      </div>
+            <button
+              onClick={() => onModeChange('sim')}
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                mode === 'sim'
+                  ? 'bg-amber-500 text-black shadow-md'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>Simulador</span>
+            </button>
+          </div>
 
-      {/* Context info box */}
-      <div className="p-3 bg-[#14161b] border border-white/5 rounded-xl text-xs text-white/60 flex items-center justify-between">
-        {mode === 'usb' && (
-          <span>
-            Conexão via <strong className="text-white">Cabo USB</strong> direto (115200 baud). Compatível com Chrome/Edge ≥ 89. Sem necessidade de driver adicional.
-          </span>
-        )}
-        {mode === 'bt' && (
-          <span>
-            Conexão sem fio via <strong className="text-white">BLE-Nano Bluetooth</strong> (Serviço FFE0 / Char FFE1). Requer Bluetooth ativo no computador ou celular.
-          </span>
-        )}
-        {mode === 'sim' && (
-          <span>
-            <strong className="text-amber-300">Modo Simulador Ativo</strong>: Simula um Arduino Nano virtual com 74HC595 na memória, permitindo testar e visualizar todas animações e configurações sem placa física!
-          </span>
-        )}
-      </div>
+          <div className="p-3 bg-[#14161b] border border-white/5 rounded-xl text-xs text-white/60 flex items-center justify-between">
+            {mode === 'usb' && (
+              <span>
+                Conexão via <strong className="text-white">Cabo USB</strong> direto (115200 baud). Compatível com Chrome/Edge ≥ 89. Sem necessidade de driver adicional.
+              </span>
+            )}
+            {mode === 'bt' && (
+              <span>
+                Conexão sem fio via <strong className="text-white">BLE-Nano Bluetooth</strong> (Serviço FFE0 / Char FFE1). Requer Bluetooth ativo no computador ou celular.
+              </span>
+            )}
+            {mode === 'sim' && (
+              <span>
+                <strong className="text-amber-300">Modo Simulador Ativo</strong>: Simula um Arduino Nano virtual com 74HC595 na memória, permitindo testar e visualizar todas animações e configurações sem placa física!
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </header>
   );
 };
